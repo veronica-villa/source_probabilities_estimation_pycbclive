@@ -1,3 +1,13 @@
+# Module with utilities for estimating candidate events source probabilities
+# Initial code by A. Curiel Barroso, August 2019
+# Modified by V. Villa-Ortega, January 2020, March 2021
+
+"""Functions to compute the area corresponding to different CBC on the m1 & m2
+plane when given a central mchirp value and uncertainty.
+It also includes a function that calculates the source frame when given the
+detector frame mass and redshift.
+"""
+
 import math
 import numpy as np
 from pycbc.conversions import mass2_from_mchirp_mass1 as m2mcm1
@@ -77,7 +87,11 @@ def intmc(mc, x_min, x_max):
     integral = quad(lambda x, mc: m2mcm1(mc, x), x_min, x_max, args=mc)
     return integral[0]
 
+
 def get_area(trig_mc, lim_h1, lim_h2, lim_v1, lim_v2):
+    """Returns the area of the chirp mass contour in each region of the m1m2
+       plane taking horizontal and vertical limits of the region as arguments.
+    """
     mcb = trig_mc[0] + trig_mc[1]
     mcs = trig_mc[0] - trig_mc[1]
     # The points where the equal mass line and a chirp mass
@@ -147,3 +161,44 @@ def calc_areas(trig_mc_det, mass_limits, mass_bdary, z, mass_gap):
         "BBH": abbh,
         "Mass Gap": agns + agg + abhg
         }
+
+
+def calc_probabilities(mchirp, snr, eff_distance, src_args):
+    """Computes the different probabilities that a candidate event belongs to
+       each CBC source category taking as arguments the chirp mass, the
+       coincident SNR and the effective distance, and estimating the
+       chirp mass uncertainty, the luminosity distance (and its uncertainty)
+       and the redshift (and its uncertainty). Probability estimation is done
+       assuming it is directly proportional to the area laying in the
+       correspondent CBC region.
+    """
+    mass_limits = src_args['mass_limits']
+    mass_bdary = src_args['mass_bdary']
+    coeff = src_args['estimation_coeff']
+    trig_mc_det = {'central': mchirp, 'delta': mchirp * coeff['m0']}
+    dist_estimation = coeff['a0'] * eff_distance
+    dist_std_estimation = (dist_estimation * math.exp(coeff['b0']) *
+                           snr ** coeff['b1'])
+    z_estimation = _redshift(dist_estimation)
+    z_est_max = _redshift(dist_estimation + dist_std_estimation)
+    z_est_min = _redshift(dist_estimation - dist_std_estimation)
+    z_std_estimation = 0.5 * (z_est_max - z_est_min)
+    z = {'central': z_estimation, 'delta': z_std_estimation}
+    mass_gap = src_args['mass_gap']
+
+    # If the mchirp is greater than the mchirp corresponding to two masses
+    # equal to the maximum mass, the probability for BBH is 100%
+    mc_max = mass_limits['max_m1'] / (2 ** 0.2)
+    if trig_mc_det['central'] > mc_max * (1 + z['central']):
+        if mass_gap:
+            probabilities = {"BNS": 0.0, "GNS": 0.0, "NSBH": 0.0, "GG": 0.0,
+                             "BHG": 0.0, "BBH": 1.0}
+        else:
+            probabilities = {"BNS": 0.0, "NSBH": 0.0, "BBH": 1.0,
+                             "Mass Gap": 0.0}
+    else:
+        areas = calc_areas(trig_mc_det, mass_limits, mass_bdary, z, mass_gap)
+        total_area = sum(areas.values())
+        probabilities = {key: areas[key]/total_area for key in areas}
+    return probabilities
+
