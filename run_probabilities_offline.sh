@@ -33,5 +33,6 @@ do
         --src-class-mass-gap 3.0 3.0 \
         --src-class-eff-to-lum-distance 0.74899 \
         --src-class-lum-distance-to-delta -0.51557 -0.32195 \
+        --src-class-lal-cosmology \
         --verbose
 done
